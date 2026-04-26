@@ -1,6 +1,7 @@
 package http
 
 import (
+	"realtime-bidding-system/pkg/resilience"
 	"realtime-bidding-system/services/api-gateway/internal/http/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -15,6 +16,12 @@ func NewRouter(h *Handlers, serviceName string) *gin.Engine {
 	// Initialize Rate Limiter
 	limiter := middleware.NewIPRateLimiter(rate.Limit(100), 200)
 
+	// Initialize Resilience Patterns
+	// Bulkhead limiting global concurrent requests to 1000
+	globalBulkhead := resilience.NewBulkhead(1000)
+	// Circuit Breaker for the API Gateway
+	apiCB := resilience.NewCircuitBreaker("api-gateway")
+
 	// Apply Middlewares
 	r.Use(middleware.RequestID())
 	r.Use(middleware.Recovery())
@@ -23,6 +30,10 @@ func NewRouter(h *Handlers, serviceName string) *gin.Engine {
 	r.Use(middleware.Logging())
 	r.Use(middleware.RateLimit(limiter))
 	r.Use(middleware.Metrics())
+
+	// Apply Resilience Middlewares
+	r.Use(middleware.Bulkhead(globalBulkhead))
+	r.Use(middleware.CircuitBreaker(apiCB))
 
 	r.GET("/health", h.Health)
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
